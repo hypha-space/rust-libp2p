@@ -8,6 +8,8 @@
 
 This repository is the central place for Rust development of the [libp2p](https://libp2p.io) spec.
 
+This fork changes the use of TLS in libp2p to support mutual TLS. In contrast to the self-signed certificate approach of libp2p, this uses certificates authenticated by a Certificate Authority, making it suitable for permissioned peer-to-peer networks where trust is rooted in organizational CAs rather than self-generated identities. See the [Hypha RFC](https://github.com/hypha-space/hypha/blob/main/rfc/2025-05-30_mtls.md) for design decisions.
+
 ## Getting started
 
 - **Main documentation** can be found on https://docs.rs/libp2p.

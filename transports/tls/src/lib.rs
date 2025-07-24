@@ -31,61 +31,103 @@ mod verifier;
 
 use std::sync::Arc;
 
-use certificate::AlwaysResolvesCert;
+use ed25519_dalek::{
+    pkcs8::{self, DecodePrivateKey},
+    SigningKey,
+};
 pub use futures_rustls::TlsStream;
-use libp2p_identity::{Keypair, PeerId};
+pub use rustls::pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer};
+use rustls::{client::WebPkiServerVerifier, server::WebPkiClientVerifier, RootCertStore};
+use thiserror::Error;
 pub use upgrade::{Config, UpgradeError};
-
-const P2P_ALPN: [u8; 6] = *b"libp2p";
 
 /// Create a TLS client configuration for libp2p.
 pub fn make_client_config(
-    keypair: &Keypair,
-    remote_peer_id: Option<PeerId>,
+    cert_chain: Vec<CertificateDer<'static>>,
+    private_key: PrivateKeyDer<'static>,
+    ca_certs: Vec<CertificateDer<'static>>,
+    crls: Vec<CertificateRevocationListDer<'static>>,
 ) -> Result<rustls::ClientConfig, certificate::GenError> {
-    let (certificate, private_key) = certificate::generate(keypair)?;
+    // Create root cert store with CA certificates
+    let mut root_store = RootCertStore::empty();
+    for ca_cert in &ca_certs {
+        root_store.add(ca_cert.clone()).unwrap();
+    }
 
     let mut provider = rustls::crypto::ring::default_provider();
     provider.cipher_suites = verifier::CIPHERSUITES.to_vec();
 
-    let cert_resolver = Arc::new(
-        AlwaysResolvesCert::new(certificate, &private_key)
-            .expect("Client cert key DER is valid; qed"),
-    );
+    let server_verifier = WebPkiServerVerifier::builder(Arc::new(root_store))
+        .with_crls(crls)
+        .build()
+        .unwrap();
 
-    let mut crypto = rustls::ClientConfig::builder_with_provider(provider.into())
+    // TODO: Add CRL validation for server certificates.
+    Ok(rustls::ClientConfig::builder_with_provider(provider.into())
         .with_protocol_versions(verifier::PROTOCOL_VERSIONS)
         .expect("Cipher suites and kx groups are configured; qed")
-        .dangerous()
-        .with_custom_certificate_verifier(Arc::new(
-            verifier::Libp2pCertificateVerifier::with_remote_peer_id(remote_peer_id),
-        ))
-        .with_client_cert_resolver(cert_resolver);
-    crypto.alpn_protocols = vec![P2P_ALPN.to_vec()];
-
-    Ok(crypto)
+        .with_webpki_verifier(server_verifier)
+        .with_client_auth_cert(cert_chain, private_key)
+        .unwrap())
 }
 
 /// Create a TLS server configuration for libp2p.
 pub fn make_server_config(
-    keypair: &Keypair,
+    cert_chain: Vec<CertificateDer<'static>>,
+    private_key: PrivateKeyDer<'static>,
+    ca_certs: Vec<CertificateDer<'static>>,
+    crls: Vec<CertificateRevocationListDer<'static>>,
 ) -> Result<rustls::ServerConfig, certificate::GenError> {
-    let (certificate, private_key) = certificate::generate(keypair)?;
+    // Create root cert store with CA certificates
+    let mut root_store = RootCertStore::empty();
+    for ca_cert in &ca_certs {
+        root_store.add(ca_cert.clone()).unwrap();
+    }
 
     let mut provider = rustls::crypto::ring::default_provider();
     provider.cipher_suites = verifier::CIPHERSUITES.to_vec();
 
-    let cert_resolver = Arc::new(
-        AlwaysResolvesCert::new(certificate, &private_key)
-            .expect("Server cert key DER is valid; qed"),
-    );
+    // Create verifier that requires and validates client certificates
+    let client_verifier = WebPkiClientVerifier::builder(Arc::new(root_store))
+        .with_crls(crls)
+        .build()
+        .unwrap();
 
-    let mut crypto = rustls::ServerConfig::builder_with_provider(provider.into())
+    let crypto = rustls::ServerConfig::builder_with_provider(provider.into())
         .with_protocol_versions(verifier::PROTOCOL_VERSIONS)
         .expect("Cipher suites and kx groups are configured; qed")
-        .with_client_cert_verifier(Arc::new(verifier::Libp2pCertificateVerifier::new()))
-        .with_cert_resolver(cert_resolver);
-    crypto.alpn_protocols = vec![P2P_ALPN.to_vec()];
+        .with_client_cert_verifier(client_verifier)
+        .with_single_cert(cert_chain, private_key)
+        .unwrap();
 
     Ok(crypto)
+}
+
+/// Errors that can occur when parsing certificates.
+#[derive(Error, Debug)]
+pub enum ParseError {
+    /// Invalid certificate format
+    #[error("Invalid certificate format")]
+    InvalidFormat,
+    /// Decoding error
+    #[error("Decoding error")]
+    Decoding(#[from] libp2p_identity::DecodingError),
+    /// Parse error
+    #[error("PKCS8 error")]
+    Parse(#[from] pkcs8::Error),
+}
+
+/// Create a libp2p identity from a private key
+pub fn identity_from_private_key(
+    private_key: &rustls::pki_types::PrivateKeyDer<'static>,
+) -> Result<libp2p_identity::Keypair, ParseError> {
+    match private_key {
+        PrivateKeyDer::Pkcs8(key) => {
+            let key = SigningKey::from_pkcs8_der(key.secret_pkcs8_der())?;
+
+            libp2p_identity::Keypair::ed25519_from_bytes(key.to_bytes())
+                .map_err(ParseError::Decoding)
+        }
+        _ => Err(ParseError::InvalidFormat),
+    }
 }

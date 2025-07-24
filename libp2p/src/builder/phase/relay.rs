@@ -76,11 +76,20 @@ impl<Provider, T: AuthenticatedMultiplexedTransport> SwarmBuilder<Provider, Rela
     <<<MuxUpgrade as IntoMultiplexerUpgrade<SecStream>>::Upgrade as UpgradeInfo>::InfoIter as IntoIterator>::IntoIter: Send,
     <<MuxUpgrade as IntoMultiplexerUpgrade<SecStream>>::Upgrade as UpgradeInfo>::Info: Send,
     {
-        let (relay_transport, relay_behaviour) =
-            libp2p_relay::client::new(self.keypair.public().to_peer_id());
+        let (relay_transport, relay_behaviour) = libp2p_relay::client::new(
+            libp2p_tls::identity_from_private_key(&self.private_key)
+                .unwrap()
+                .public()
+                .to_peer_id(),
+        );
         let relay_transport = relay_transport
             .upgrade(libp2p_core::upgrade::Version::V1Lazy)
-            .authenticate(security_upgrade.into_security_upgrade(&self.keypair)?)
+            .authenticate(security_upgrade.into_security_upgrade(
+                &self.cert_chain,
+                &self.private_key,
+                &self.ca_certs,
+                &self.crls,
+            )?)
             .multiplex(multiplexer_upgrade.into_multiplexer_upgrade())
             .map(|(p, c), _| (p, StreamMuxerBox::new(c)));
 
@@ -91,7 +100,10 @@ impl<Provider, T: AuthenticatedMultiplexedTransport> SwarmBuilder<Provider, Rela
                     .or_transport(self.phase.transport)
                     .map(|either, _| either.into_inner()),
             },
-            keypair: self.keypair,
+            cert_chain: self.cert_chain,
+            private_key: self.private_key,
+            ca_certs: self.ca_certs,
+            crls: self.crls,
             phantom: PhantomData,
         })
     }
@@ -104,7 +116,10 @@ impl<Provider, T> SwarmBuilder<Provider, RelayPhase<T>> {
         self,
     ) -> SwarmBuilder<Provider, BandwidthMetricsPhase<T, NoRelayBehaviour>> {
         SwarmBuilder {
-            keypair: self.keypair,
+            cert_chain: self.cert_chain,
+            private_key: self.private_key,
+            ca_certs: self.ca_certs,
+            crls: self.crls,
             phantom: PhantomData,
             phase: BandwidthMetricsPhase {
                 transport: self.phase.transport,

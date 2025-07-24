@@ -27,7 +27,10 @@ impl<Provider, T: AuthenticatedMultiplexedTransport, B: libp2p_swarm::NetworkBeh
         Swarm::new(
             TransportTimeout::new(self.phase.transport, self.phase.connection_timeout).boxed(),
             self.phase.behaviour,
-            self.keypair.public().to_peer_id(),
+            libp2p_tls::identity_from_private_key(&self.private_key)
+                .unwrap()
+                .public()
+                .to_peer_id(),
             self.phase.swarm_config,
         )
     }

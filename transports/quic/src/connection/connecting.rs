@@ -26,13 +26,15 @@ use std::{
     time::Duration,
 };
 
+use ed25519_dalek::{pkcs8::DecodePublicKey, VerifyingKey};
 use futures::{
     future::{select, Either, FutureExt, Select},
     prelude::*,
 };
 use futures_timer::Delay;
-use libp2p_identity::PeerId;
-use quinn::rustls::pki_types::CertificateDer;
+use libp2p_identity::{PeerId, PublicKey};
+use libp2p_tls::CertificateDer;
+use webpki::EndEntityCert;
 
 use crate::{Connection, ConnectionError, Error};
 
@@ -62,9 +64,22 @@ impl Connecting {
         let end_entity = certificates
             .first()
             .expect("there should be exactly one certificate; qed");
-        let p2p_cert = libp2p_tls::certificate::parse(end_entity)
-            .expect("the certificate was validated during TLS handshake; qed");
-        p2p_cert.peer_id()
+
+        let end_entity_cert =
+            EndEntityCert::try_from(end_entity).expect("the certificate is parseable");
+
+        let spki_der = end_entity_cert.subject_public_key_info();
+
+        let verifying_key = VerifyingKey::from_public_key_der(spki_der.as_ref())
+            .expect("the verifying key is extracted");
+
+        let ed25519_public =
+            libp2p_identity::ed25519::PublicKey::try_from_bytes(verifying_key.as_bytes())
+                .expect("a public key");
+
+        let public_key = PublicKey::from(ed25519_public);
+
+        public_key.to_peer_id()
     }
 }
 

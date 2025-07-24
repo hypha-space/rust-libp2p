@@ -24,6 +24,9 @@ tracing = { workspace = true }
 socket2 = "0.5.7"
 ring = { workspace = true }
 
+ed25519-dalek = { workspace = true }
+webpki = { workspace = true }
+
 [features]
 tokio = ["dep:tokio", "if-watch/tokio", "quinn/runtime-tokio"]
 
@@ -41,10 +44,6 @@ libp2p-yamux = { workspace = true }
 quickcheck = "1"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-
-[[test]]
-name = "stream_compliance"
-required-features = ["tokio"]
 
 [lints]
 workspace = true

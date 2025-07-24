@@ -20,6 +20,7 @@ use build::*;
 use dns::*;
 use libp2p_core::{muxing::StreamMuxerBox, Transport};
 use libp2p_identity::Keypair;
+use libp2p_tls::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer};
 pub use other_transport::TransportError;
 use other_transport::*;
 use provider::*;
@@ -40,18 +41,35 @@ pub trait IntoSecurityUpgrade<C> {
     type Upgrade;
     type Error;
 
-    fn into_security_upgrade(self, keypair: &Keypair) -> Result<Self::Upgrade, Self::Error>;
+    fn into_security_upgrade(
+        self,
+        cert_chain: &Vec<CertificateDer<'static>>,
+        private_key: &PrivateKeyDer<'static>,
+        ca_certs: &Vec<CertificateDer<'static>>,
+        crls: &Vec<CertificateRevocationListDer<'static>>,
+    ) -> Result<Self::Upgrade, Self::Error>;
 }
 
 impl<C, T, F, E> IntoSecurityUpgrade<C> for F
 where
-    F: for<'a> FnOnce(&'a Keypair) -> Result<T, E>,
+    F: for<'a> FnOnce(
+        &'a Vec<CertificateDer<'static>>,
+        &'a PrivateKeyDer<'static>,
+        &'a Vec<CertificateDer<'static>>,
+        &'a Vec<CertificateRevocationListDer<'static>>,
+    ) -> Result<T, E>,
 {
     type Upgrade = T;
     type Error = E;
 
-    fn into_security_upgrade(self, keypair: &Keypair) -> Result<Self::Upgrade, Self::Error> {
-        (self)(keypair)
+    fn into_security_upgrade(
+        self,
+        cert_chain: &Vec<CertificateDer<'static>>,
+        private_key: &PrivateKeyDer<'static>,
+        ca_certs: &Vec<CertificateDer<'static>>,
+        crls: &Vec<CertificateRevocationListDer<'static>>,
+    ) -> Result<Self::Upgrade, Self::Error> {
+        (self)(cert_chain, private_key, ca_certs, crls)
     }
 }
 
@@ -63,14 +81,20 @@ where
     type Upgrade = SelectSecurityUpgrade<F1::Upgrade, F2::Upgrade>;
     type Error = either::Either<F1::Error, F2::Error>;
 
-    fn into_security_upgrade(self, keypair: &Keypair) -> Result<Self::Upgrade, Self::Error> {
+    fn into_security_upgrade(
+        self,
+        cert_chain: &Vec<CertificateDer<'static>>,
+        private_key: &PrivateKeyDer<'static>,
+        ca_certs: &Vec<CertificateDer<'static>>,
+        crls: &Vec<CertificateRevocationListDer<'static>>,
+    ) -> Result<Self::Upgrade, Self::Error> {
         let (f1, f2) = self;
 
         let u1 = f1
-            .into_security_upgrade(keypair)
+            .into_security_upgrade(cert_chain, private_key, ca_certs, crls)
             .map_err(either::Either::Left)?;
         let u2 = f2
-            .into_security_upgrade(keypair)
+            .into_security_upgrade(cert_chain, private_key, ca_certs, crls)
             .map_err(either::Either::Right)?;
 
         Ok(SelectSecurityUpgrade::new(u1, u2))

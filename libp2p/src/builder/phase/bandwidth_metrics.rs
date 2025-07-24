@@ -22,7 +22,10 @@ impl<T: AuthenticatedMultiplexedTransport, Provider, R>
                 transport: libp2p_metrics::BandwidthTransport::new(self.phase.transport, registry)
                     .map(|(peer_id, conn), _| (peer_id, StreamMuxerBox::new(conn))),
             },
-            keypair: self.keypair,
+            cert_chain: self.cert_chain,
+            private_key: self.private_key,
+            ca_certs: self.ca_certs,
+            crls: self.crls,
             phantom: PhantomData,
         }
     }
@@ -35,7 +38,10 @@ impl<T, Provider, R> SwarmBuilder<Provider, BandwidthMetricsPhase<T, R>> {
                 relay_behaviour: self.phase.relay_behaviour,
                 transport: self.phase.transport,
             },
-            keypair: self.keypair,
+            cert_chain: self.cert_chain,
+            private_key: self.private_key,
+            ca_certs: self.ca_certs,
+            crls: self.crls,
             phantom: PhantomData,
         }
     }

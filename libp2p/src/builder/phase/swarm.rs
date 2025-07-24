@@ -25,7 +25,10 @@ macro_rules! impl_with_swarm_config {
                         swarm_config: constructor($config),
                         connection_timeout: DEFAULT_CONNECTION_TIMEOUT,
                     },
-                    keypair: self.keypair,
+                    cert_chain: self.cert_chain,
+                    private_key: self.private_key,
+                    ca_certs: self.ca_certs,
+                    crls: self.crls,
                     phantom: std::marker::PhantomData,
                 }
             }

@@ -16,13 +16,18 @@ impl<T, Provider> SwarmBuilder<Provider, BehaviourPhase<T, libp2p_relay::client:
         self,
         constructor: impl FnOnce(&libp2p_identity::Keypair, libp2p_relay::client::Behaviour) -> R,
     ) -> Result<SwarmBuilder<Provider, SwarmPhase<T, B>>, R::Error> {
+        let keypair = libp2p_tls::identity_from_private_key(&self.private_key).unwrap();
+
         Ok(SwarmBuilder {
             phase: SwarmPhase {
-                behaviour: constructor(&self.keypair, self.phase.relay_behaviour)
+                behaviour: constructor(&keypair, self.phase.relay_behaviour)
                     .try_into_behaviour()?,
                 transport: self.phase.transport,
             },
-            keypair: self.keypair,
+            cert_chain: self.cert_chain,
+            private_key: self.private_key,
+            ca_certs: self.ca_certs,
+            crls: self.crls,
             phantom: PhantomData,
         })
     }
@@ -36,12 +41,17 @@ impl<T, Provider> SwarmBuilder<Provider, BehaviourPhase<T, NoRelayBehaviour>> {
         // Discard `NoRelayBehaviour`.
         let _ = self.phase.relay_behaviour;
 
+        let keypair = libp2p_tls::identity_from_private_key(&self.private_key).unwrap();
+
         Ok(SwarmBuilder {
             phase: SwarmPhase {
-                behaviour: constructor(&self.keypair).try_into_behaviour()?,
+                behaviour: constructor(&keypair).try_into_behaviour()?,
                 transport: self.phase.transport,
             },
-            keypair: self.keypair,
+            cert_chain: self.cert_chain,
+            private_key: self.private_key,
+            ca_certs: self.ca_certs,
+            crls: self.crls,
             phantom: PhantomData,
         })
     }

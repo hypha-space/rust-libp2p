@@ -91,7 +91,7 @@ macro_rules! impl_websocket_builder {
                 <<MuxUpgrade as IntoMultiplexerUpgrade<SecStream>>::Upgrade as UpgradeInfo>::Info: Send,
 
             {
-                let security_upgrade = security_upgrade.into_security_upgrade(&self.keypair)
+                let security_upgrade = security_upgrade.into_security_upgrade(&self.cert_chain, &self.private_key, &self.ca_certs, &self.crls)
                     .map_err(WebsocketErrorInner::SecurityUpgrade)?;
                 let websocket_transport = libp2p_websocket::Config::new(
                     $dnsTcp.await.map_err(WebsocketErrorInner::Dns)?,
@@ -102,7 +102,10 @@ macro_rules! impl_websocket_builder {
                     .map(|(p, c), _| (p, StreamMuxerBox::new(c)));
 
                 Ok(SwarmBuilder {
-                    keypair: self.keypair,
+                    cert_chain: self.cert_chain,
+                    private_key: self.private_key,
+                    ca_certs: self.ca_certs,
+                    crls: self.crls,
                     phantom: PhantomData,
                     phase: RelayPhase {
                         transport: websocket_transport
@@ -129,7 +132,10 @@ impl_websocket_builder!(
 impl<Provider, T: AuthenticatedMultiplexedTransport> SwarmBuilder<Provider, WebsocketPhase<T>> {
     pub(crate) fn without_websocket(self) -> SwarmBuilder<Provider, RelayPhase<T>> {
         SwarmBuilder {
-            keypair: self.keypair,
+            cert_chain: self.cert_chain,
+            private_key: self.private_key,
+            ca_certs: self.ca_certs,
+            crls: self.crls,
             phantom: PhantomData,
             phase: RelayPhase {
                 transport: self.phase.transport,

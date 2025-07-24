@@ -25,7 +25,12 @@ impl<Provider, T: AuthenticatedMultiplexedTransport>
         R: TryIntoTransport<OtherTransport>,
     >(
         self,
-        constructor: impl FnOnce(&libp2p_identity::Keypair) -> R,
+        constructor: impl FnOnce(
+            &Vec<CertificateDer<'static>>,
+            &PrivateKeyDer<'static>,
+            &Vec<CertificateDer<'static>>,
+            &Vec<CertificateRevocationListDer<'static>>,
+        ) -> R,
     ) -> Result<
         SwarmBuilder<Provider, OtherTransportPhase<impl AuthenticatedMultiplexedTransport>>,
         R::Error,
@@ -43,20 +48,31 @@ impl<Provider, T: AuthenticatedMultiplexedTransport>
                     .phase
                     .transport
                     .or_transport(
-                        constructor(&self.keypair)
-                            .try_into_transport()?
-                            .map(|(peer_id, conn), _| (peer_id, StreamMuxerBox::new(conn))),
+                        constructor(
+                            &self.cert_chain,
+                            &self.private_key,
+                            &self.ca_certs,
+                            &self.crls,
+                        )
+                        .try_into_transport()?
+                        .map(|(peer_id, conn), _| (peer_id, StreamMuxerBox::new(conn))),
                     )
                     .map(|either, _| either.into_inner()),
             },
-            keypair: self.keypair,
+            cert_chain: self.cert_chain,
+            private_key: self.private_key,
+            ca_certs: self.ca_certs,
+            crls: self.crls,
             phantom: PhantomData,
         })
     }
 
     pub(crate) fn without_any_other_transports(self) -> SwarmBuilder<Provider, DnsPhase<T>> {
         SwarmBuilder {
-            keypair: self.keypair,
+            cert_chain: self.cert_chain,
+            private_key: self.private_key,
+            ca_certs: self.ca_certs,
+            crls: self.crls,
             phantom: PhantomData,
             phase: DnsPhase {
                 transport: self.phase.transport,

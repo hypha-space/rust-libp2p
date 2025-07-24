@@ -20,6 +20,7 @@
 
 use std::{sync::Arc, time::Duration};
 
+use libp2p_tls::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer};
 use quinn::{
     crypto::rustls::{QuicClientConfig, QuicServerConfig},
     MtuDiscoveryConfig, VarInt,
@@ -76,13 +77,35 @@ pub struct Config {
 #[expect(deprecated)]
 impl Config {
     /// Creates a new configuration object with default values.
-    pub fn new(keypair: &libp2p_identity::Keypair) -> Self {
+    pub fn new(
+        cert_chain: &Vec<CertificateDer<'static>>,
+        private_key: &PrivateKeyDer<'static>,
+        ca_certs: &Vec<CertificateDer<'static>>,
+        crls: &Vec<CertificateRevocationListDer<'static>>,
+    ) -> Self {
         let client_tls_config = Arc::new(
-            QuicClientConfig::try_from(libp2p_tls::make_client_config(keypair, None).unwrap())
+            QuicClientConfig::try_from(
+                libp2p_tls::make_client_config(
+                    cert_chain.clone(),
+                    private_key.clone_key(),
+                    ca_certs.clone(),
+                    crls.clone(),
+                )
                 .unwrap(),
+            )
+            .unwrap(),
         );
         let server_tls_config = Arc::new(
-            QuicServerConfig::try_from(libp2p_tls::make_server_config(keypair).unwrap()).unwrap(),
+            QuicServerConfig::try_from(
+                libp2p_tls::make_server_config(
+                    cert_chain.clone(),
+                    private_key.clone_key(),
+                    ca_certs.clone(),
+                    crls.clone(),
+                )
+                .unwrap(),
+            )
+            .unwrap(),
         );
         Self {
             client_tls_config,
@@ -96,7 +119,8 @@ impl Config {
 
             // Ensure that one stream is not consuming the whole connection.
             max_stream_data: 10_000_000,
-            keypair: keypair.clone(),
+            keypair: libp2p_tls::identity_from_private_key(&private_key)
+                .expect("Private key is valid"),
             mtu_discovery_config: Some(Default::default()),
         }
     }

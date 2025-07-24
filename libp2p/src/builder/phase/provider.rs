@@ -29,7 +29,10 @@ impl SwarmBuilder<NoProviderSpecified, ProviderPhase> {
     #[cfg(all(not(target_arch = "wasm32"), feature = "tokio"))]
     pub fn with_tokio(self) -> SwarmBuilder<Tokio, TcpPhase> {
         SwarmBuilder {
-            keypair: self.keypair,
+            cert_chain: self.cert_chain,
+            private_key: self.private_key,
+            ca_certs: self.ca_certs,
+            crls: self.crls,
             phantom: PhantomData,
             phase: TcpPhase {},
         }
@@ -40,7 +43,10 @@ impl SwarmBuilder<NoProviderSpecified, ProviderPhase> {
     #[cfg(feature = "wasm-bindgen")]
     pub fn with_wasm_bindgen(self) -> SwarmBuilder<WasmBindgen, TcpPhase> {
         SwarmBuilder {
-            keypair: self.keypair,
+            cert_chain: self.cert_chain,
+            private_key: self.private_key,
+            ca_certs: self.ca_certs,
+            crls: self.crls,
             phantom: PhantomData,
             phase: TcpPhase {},
         }

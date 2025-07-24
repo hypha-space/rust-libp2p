@@ -137,6 +137,8 @@ libp2p-uds = { workspace = true, optional = true }
 libp2p-upnp = { workspace = true, optional = true }
 libp2p-websocket = { workspace = true, optional = true }
 
+webpki = { workspace = true }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["io-util", "io-std", "macros", "rt", "rt-multi-thread"] }
 

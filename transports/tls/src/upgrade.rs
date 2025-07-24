@@ -23,17 +23,21 @@ use std::{
     sync::Arc,
 };
 
+use ed25519_dalek::{pkcs8::DecodePublicKey, VerifyingKey};
 use futures::{future::BoxFuture, AsyncRead, AsyncWrite, FutureExt};
 use futures_rustls::TlsStream;
 use libp2p_core::{
     upgrade::{InboundConnectionUpgrade, OutboundConnectionUpgrade},
     UpgradeInfo,
 };
-use libp2p_identity as identity;
-use libp2p_identity::PeerId;
-use rustls::{pki_types::ServerName, CommonState};
+use libp2p_identity::{PeerId, PublicKey};
+use rustls::{
+    pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer, ServerName},
+    CommonState,
+};
+use webpki::EndEntityCert;
 
-use crate::{certificate, certificate::P2pCertificate};
+use crate::certificate;
 
 #[derive(thiserror::Error, Debug)]
 pub enum UpgradeError {
@@ -54,10 +58,28 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new(identity: &identity::Keypair) -> Result<Self, certificate::GenError> {
+    pub fn new(
+        cert_chain: &Vec<CertificateDer<'static>>,
+        private_key: &PrivateKeyDer<'static>,
+        ca_certs: &Vec<CertificateDer<'static>>,
+        crls: &Vec<CertificateRevocationListDer<'static>>,
+    ) -> Result<Self, certificate::GenError> {
+        // Initialize crypto provider if not already done
+        let _ = rustls::crypto::ring::default_provider().install_default();
+
         Ok(Self {
-            server: crate::make_server_config(identity)?,
-            client: crate::make_client_config(identity, None)?,
+            server: crate::make_server_config(
+                cert_chain.clone(),
+                private_key.clone_key(),
+                ca_certs.clone(),
+                crls.clone(),
+            )?,
+            client: crate::make_client_config(
+                cert_chain.clone(),
+                private_key.clone_key(),
+                ca_certs.clone(),
+                crls.clone(),
+            )?,
         })
     }
 }
@@ -86,7 +108,7 @@ where
                 .await
                 .map_err(UpgradeError::ServerUpgrade)?;
 
-            let peer_id = extract_single_certificate(stream.get_ref().1)?.peer_id();
+            let peer_id = extract_peer_id_from_tls_state(stream.get_ref().1)?;
 
             Ok((peer_id, stream.into()))
         }
@@ -117,7 +139,7 @@ where
                 .await
                 .map_err(UpgradeError::ClientUpgrade)?;
 
-            let peer_id = extract_single_certificate(stream.get_ref().1)?.peer_id();
+            let peer_id = extract_peer_id_from_tls_state(stream.get_ref().1)?;
 
             Ok((peer_id, stream.into()))
         }
@@ -125,12 +147,32 @@ where
     }
 }
 
-fn extract_single_certificate(
-    state: &CommonState,
-) -> Result<P2pCertificate<'_>, certificate::ParseError> {
-    let Some([cert]) = state.peer_certificates() else {
-        panic!("config enforces exactly one certificate");
-    };
+fn extract_peer_id_from_tls_state(state: &CommonState) -> Result<PeerId, certificate::ParseError> {
+    let peer_certs = state.peer_certificates().ok_or(webpki::Error::BadDer)?;
 
-    certificate::parse(cert)
+    if peer_certs.is_empty() {
+        return Err(webpki::Error::BadDer.into());
+    }
+
+    let cert_der: &CertificateDer<'_> = &peer_certs[0];
+
+    // 1. Parse the certificate using rustls-webpki
+    // rustls_webpki::EndEntityCert::try_from takes &[u8]
+    let end_entity_cert = EndEntityCert::try_from(cert_der)?;
+
+    // 2. Get the SubjectPublicKeyInfo (SPKI) DER bytes
+    let spki_der = end_entity_cert.subject_public_key_info();
+
+    // 3. Parse the SPKI DER to get an Ed25519 verifying key.
+    let verifying_key =
+        VerifyingKey::from_public_key_der(spki_der.as_ref()).map_err(|_| webpki::Error::BadDer)?;
+
+    // 4. Convert to libp2p PublicKey
+    let ed25519_public =
+        libp2p_identity::ed25519::PublicKey::try_from_bytes(verifying_key.as_bytes())
+            .map_err(|_| webpki::Error::BadDer)?;
+    let public_key = PublicKey::from(ed25519_public);
+
+    // Get PeerId
+    Ok(public_key.to_peer_id())
 }

@@ -43,7 +43,12 @@ macro_rules! impl_quic_builder {
                             .transport
                             .or_transport(
                                 libp2p_quic::$quic::Transport::new(constructor(
-                                    libp2p_quic::Config::new(&self.keypair),
+                                    libp2p_quic::Config::new(
+                                        &self.cert_chain,
+                                        &self.private_key,
+                                        &self.ca_certs,
+                                        &self.crls,
+                                    ),
                                 ))
                                 .map(|(peer_id, muxer), _| {
                                     (peer_id, libp2p_core::muxing::StreamMuxerBox::new(muxer))
@@ -51,7 +56,10 @@ macro_rules! impl_quic_builder {
                             )
                             .map(|either, _| either.into_inner()),
                     },
-                    keypair: self.keypair,
+                    cert_chain: self.cert_chain,
+                    private_key: self.private_key,
+                    ca_certs: self.ca_certs,
+                    crls: self.crls,
                     phantom: PhantomData,
                 }
             }
@@ -64,7 +72,10 @@ impl_quic_builder!("tokio", super::provider::Tokio, tokio);
 impl<Provider, T> SwarmBuilder<Provider, QuicPhase<T>> {
     pub(crate) fn without_quic(self) -> SwarmBuilder<Provider, OtherTransportPhase<T>> {
         SwarmBuilder {
-            keypair: self.keypair,
+            cert_chain: self.cert_chain,
+            private_key: self.private_key,
+            ca_certs: self.ca_certs,
+            crls: self.crls,
             phantom: PhantomData,
             phase: OtherTransportPhase {
                 transport: self.phase.transport,
@@ -122,7 +133,12 @@ impl<Provider, T: AuthenticatedMultiplexedTransport> SwarmBuilder<Provider, Quic
         R: TryIntoTransport<OtherTransport>,
     >(
         self,
-        constructor: impl FnOnce(&libp2p_identity::Keypair) -> R,
+        constructor: impl FnOnce(
+            &Vec<CertificateDer<'static>>,
+            &PrivateKeyDer<'static>,
+            &Vec<CertificateDer<'static>>,
+            &Vec<CertificateRevocationListDer<'static>>,
+        ) -> R,
     ) -> Result<
         SwarmBuilder<Provider, OtherTransportPhase<impl AuthenticatedMultiplexedTransport>>,
         R::Error,

@@ -19,7 +19,10 @@ impl<T: AuthenticatedMultiplexedTransport> SwarmBuilder<super::provider::Tokio, 
         std::io::Error,
     > {
         Ok(SwarmBuilder {
-            keypair: self.keypair,
+            cert_chain: self.cert_chain,
+            private_key: self.private_key,
+            ca_certs: self.ca_certs,
+            crls: self.crls,
             phantom: PhantomData,
             phase: WebsocketPhase {
                 transport: libp2p_dns::tokio::Transport::system(self.phase.transport)?,
@@ -37,7 +40,10 @@ impl<T: AuthenticatedMultiplexedTransport> SwarmBuilder<super::provider::Tokio, 
     ) -> SwarmBuilder<super::provider::Tokio, WebsocketPhase<impl AuthenticatedMultiplexedTransport>>
     {
         SwarmBuilder {
-            keypair: self.keypair,
+            cert_chain: self.cert_chain,
+            private_key: self.private_key,
+            ca_certs: self.ca_certs,
+            crls: self.crls,
             phantom: PhantomData,
             phase: WebsocketPhase {
                 transport: libp2p_dns::tokio::Transport::custom(self.phase.transport, cfg, opts),
@@ -49,7 +55,10 @@ impl<T: AuthenticatedMultiplexedTransport> SwarmBuilder<super::provider::Tokio, 
 impl<Provider, T> SwarmBuilder<Provider, DnsPhase<T>> {
     pub(crate) fn without_dns(self) -> SwarmBuilder<Provider, WebsocketPhase<T>> {
         SwarmBuilder {
-            keypair: self.keypair,
+            cert_chain: self.cert_chain,
+            private_key: self.private_key,
+            ca_certs: self.ca_certs,
+            crls: self.crls,
             phantom: PhantomData,
             phase: WebsocketPhase {
                 transport: self.phase.transport,

@@ -84,12 +84,15 @@ macro_rules! impl_tcp_builder {
                         transport: libp2p_tcp::$path::Transport::new(tcp_config)
                             .upgrade(libp2p_core::upgrade::Version::V1Lazy)
                             .authenticate(
-                                security_upgrade.into_security_upgrade(&self.keypair)?,
+                                security_upgrade.into_security_upgrade(&self.cert_chain, &self.private_key, &self.ca_certs, &self.crls)?,
                             )
                             .multiplex(multiplexer_upgrade.into_multiplexer_upgrade())
                             .map(|(p, c), _| (p, StreamMuxerBox::new(c))),
                     },
-                    keypair: self.keypair,
+                    cert_chain: self.cert_chain,
+                    private_key: self.private_key,
+                    ca_certs: self.ca_certs,
+                    crls: self.crls,
                     phantom: PhantomData,
                 })
             }
@@ -104,7 +107,10 @@ impl<Provider> SwarmBuilder<Provider, TcpPhase> {
         self,
     ) -> SwarmBuilder<Provider, QuicPhase<impl AuthenticatedMultiplexedTransport>> {
         SwarmBuilder {
-            keypair: self.keypair,
+            cert_chain: self.cert_chain,
+            private_key: self.private_key,
+            ca_certs: self.ca_certs,
+            crls: self.crls,
             phantom: PhantomData,
             phase: QuicPhase {
                 transport: libp2p_core::transport::dummy::DummyTransport::new(),
@@ -143,7 +149,12 @@ impl<Provider> SwarmBuilder<Provider, TcpPhase> {
         R: TryIntoTransport<OtherTransport>,
     >(
         self,
-        constructor: impl FnOnce(&libp2p_identity::Keypair) -> R,
+        constructor: impl FnOnce(
+            &Vec<CertificateDer<'static>>,
+            &PrivateKeyDer<'static>,
+            &Vec<CertificateDer<'static>>,
+            &Vec<CertificateRevocationListDer<'static>>,
+        ) -> R,
     ) -> Result<
         SwarmBuilder<Provider, OtherTransportPhase<impl AuthenticatedMultiplexedTransport>>,
         R::Error,

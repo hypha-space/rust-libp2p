@@ -1,25 +1,7 @@
 [workspace]
 members = [
     "core",
-    "examples/autonat",
-    "examples/autonatv2",
-    "examples/browser-webrtc",
-    "examples/chat",
-    "examples/dcutr",
-    "examples/distributed-key-value-store",
-    "examples/file-sharing",
-    "examples/identify",
-    "examples/ipfs-kad",
-    "examples/ipfs-private",
-    "examples/metrics",
-    "examples/ping",
-    "examples/relay-server",
-    "examples/rendezvous",
-    "examples/stream",
-    "examples/upnp",
-    "hole-punching-tests",
     "identity",
-    "interop-tests",
     "misc/allow-block-list",
     "misc/connection-limits",
     "misc/keygen",
@@ -30,7 +12,6 @@ members = [
     "misc/quick-protobuf-codec",
     "misc/quickcheck-ext",
     "misc/rw-stream-sink",
-    "misc/server",
     "misc/webrtc-utils",
     "muxers/mplex",
     "muxers/test-harness",
@@ -143,6 +124,9 @@ tracing-subscriber = "0.3.19"
 unsigned-varint = { version = "0.8.0" }
 web-time = "1.1.0"
 hashlink = "0.9.0"
+
+ed25519-dalek = { version = "2.1", features = ["alloc", "pkcs8", "pem"] }
+webpki = { version = "0.103", package = "rustls-webpki", features = ["std"] }
 
 [patch.crates-io]
 
