@@ -23,12 +23,14 @@
 //! This module handles a verification of a client/server certificate chain
 //! and signatures allegedly by the given certificates.
 
-use std::sync::Arc;
+use std::{net::Ipv4Addr, sync::Arc};
 
 use rustls::{
+    client::danger::ServerCertVerifier,
     crypto::ring::cipher_suite::{
         TLS13_AES_128_GCM_SHA256, TLS13_AES_256_GCM_SHA384, TLS13_CHACHA20_POLY1305_SHA256,
     },
+    pki_types::ServerName,
     CertificateError, OtherError, SupportedCipherSuite, SupportedProtocolVersion,
 };
 
@@ -73,5 +75,62 @@ impl From<certificate::VerificationError> for rustls::Error {
                 Arc::new(other),
             ))),
         }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ServerCertVerifierWithUnspecifiedName {
+    inner: Arc<dyn ServerCertVerifier>,
+}
+
+impl ServerCertVerifierWithUnspecifiedName {
+    pub(crate) fn new(verifier: Arc<impl ServerCertVerifier + 'static>) -> Self {
+        Self { inner: verifier }
+    }
+}
+
+impl ServerCertVerifier for ServerCertVerifierWithUnspecifiedName {
+    fn verify_server_cert(
+        &self,
+        end_entity: &rustls::pki_types::CertificateDer<'_>,
+        intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _: &rustls::pki_types::ServerName<'_>,
+        ocsp_response: &[u8],
+        now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        // Following standard libp2p TLS, we disable SNI by using an unspecified IP address.
+        //
+        // This is needed because:
+        // - P2P nodes connect using dynamic IP addresses that change frequently
+        // - Our certificates are issued for peer identity, not specific hostnames
+        // - Trust is established through mTLS and CA validation, not hostname verification
+        //
+        // The certificate chain is still fully validated against our trusted CAs,
+        // ensuring only authorized peers can connect.
+        let server_name = ServerName::IpAddress(Ipv4Addr::UNSPECIFIED.into());
+        self.inner
+            .verify_server_cert(end_entity, intermediates, &server_name, ocsp_response, now)
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        self.inner.verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        self.inner.verify_tls13_signature(message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.inner.supported_verify_schemes()
     }
 }

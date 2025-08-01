@@ -41,6 +41,8 @@ use rustls::{client::WebPkiServerVerifier, server::WebPkiClientVerifier, RootCer
 use thiserror::Error;
 pub use upgrade::{Config, UpgradeError};
 
+use crate::verifier::ServerCertVerifierWithUnspecifiedName;
+
 /// Create a TLS client configuration for libp2p.
 pub fn make_client_config(
     cert_chain: Vec<CertificateDer<'static>>,
@@ -62,11 +64,14 @@ pub fn make_client_config(
         .build()
         .unwrap();
 
+    let server_verifier = Arc::new(ServerCertVerifierWithUnspecifiedName::new(server_verifier));
+
     // TODO: Add CRL validation for server certificates.
     Ok(rustls::ClientConfig::builder_with_provider(provider.into())
         .with_protocol_versions(verifier::PROTOCOL_VERSIONS)
         .expect("Cipher suites and kx groups are configured; qed")
-        .with_webpki_verifier(server_verifier)
+        .dangerous()
+        .with_custom_certificate_verifier(server_verifier)
         .with_client_auth_cert(cert_chain, private_key)
         .unwrap())
 }
