@@ -18,10 +18,20 @@ use swarm::{
 
 use crate::{handler::Handler, shared::Shared, Control};
 
+/// Policy for how to treat existing connections.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConnectionPolicy {
+    /// Accept both direct and relayed connections.
+    AcceptAll,
+    /// Ignore relayed connections; only use direct connections.
+    IgnoreRelayed,
+}
+
 /// A generic behaviour for stream-oriented protocols.
 pub struct Behaviour {
     shared: Arc<Mutex<Shared>>,
     dial_receiver: mpsc::Receiver<PeerId>,
+    connection_policy: ConnectionPolicy,
 }
 
 impl Default for Behaviour {
@@ -37,6 +47,18 @@ impl Behaviour {
         Self {
             shared: Arc::new(Mutex::new(Shared::new(dial_sender))),
             dial_receiver,
+            connection_policy: ConnectionPolicy::AcceptAll,
+        }
+    }
+
+    /// Create a new behaviour with a specific relay policy.
+    pub fn with_relay_policy(policy: ConnectionPolicy) -> Self {
+        let (dial_sender, dial_receiver) = mpsc::channel(0);
+
+        Self {
+            shared: Arc::new(Mutex::new(Shared::new(dial_sender))),
+            dial_receiver,
+            connection_policy: policy,
         }
     }
 
@@ -96,8 +118,23 @@ impl NetworkBehaviour for Behaviour {
             FromSwarm::ConnectionEstablished(ConnectionEstablished {
                 peer_id,
                 connection_id,
+                endpoint,
                 ..
-            }) => Shared::lock(&self.shared).on_connection_established(connection_id, peer_id),
+            }) => match self.connection_policy {
+                ConnectionPolicy::AcceptAll => {
+                    Shared::lock(&self.shared).on_connection_established(connection_id, peer_id);
+                }
+                ConnectionPolicy::IgnoreRelayed => {
+                    if endpoint.is_relayed() {
+                        tracing::debug!(peer_id = %peer_id, "Ignoring relayed connection with peer");
+
+                        return;
+                    }
+
+                    Shared::lock(&self.shared).on_connection_established(connection_id, peer_id);
+                }
+            },
+
             FromSwarm::ConnectionClosed(ConnectionClosed { connection_id, .. }) => {
                 Shared::lock(&self.shared).on_connection_closed(connection_id)
             }
@@ -134,7 +171,10 @@ impl NetworkBehaviour for Behaviour {
         if let Poll::Ready(Some(peer)) = self.dial_receiver.poll_next_unpin(cx) {
             return Poll::Ready(ToSwarm::Dial {
                 opts: DialOpts::peer_id(peer)
-                    .condition(PeerCondition::DisconnectedAndNotDialing)
+                    .condition(match self.connection_policy {
+                        ConnectionPolicy::AcceptAll => PeerCondition::DisconnectedAndNotDialing,
+                        ConnectionPolicy::IgnoreRelayed => PeerCondition::Always,
+                    })
                     .build(),
             });
         }
