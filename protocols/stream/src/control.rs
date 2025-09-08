@@ -73,6 +73,17 @@ impl Control {
     ) -> Result<IncomingStreams, AlreadyRegistered> {
         Shared::lock(&self.shared).accept(protocol)
     }
+
+    /// Accept inbound streams for the provided protocol with a limit.
+    ///
+    /// To stop accepting streams, simply drop the returned [`IncomingStreams`] handle.
+    pub fn accept_with_limit(
+        &mut self,
+        protocol: StreamProtocol,
+        limit: Option<usize>,
+    ) -> Result<IncomingStreams, AlreadyRegistered> {
+        Shared::lock(&self.shared).accept_with_limit(protocol, limit)
+    }
 }
 
 /// Errors while opening a new stream.
@@ -113,15 +124,76 @@ impl std::error::Error for OpenStreamError {
     }
 }
 
+/// Enum to wrap [`mpsc::Sender`] and [`mpsc::UnboundedSender`]
+pub(crate) enum InboundSender {
+    Bounded(mpsc::Sender<(PeerId, Stream)>),
+    Unbounded(mpsc::UnboundedSender<(PeerId, Stream)>),
+}
+
+impl InboundSender {
+    pub(crate) fn is_closed(&self) -> bool {
+        match self {
+            InboundSender::Bounded(s) => s.is_closed(),
+            InboundSender::Unbounded(s) => s.is_closed(),
+        }
+    }
+
+    pub(crate) fn try_send(&mut self, item: (PeerId, Stream)) -> TrySendResult {
+        match self {
+            InboundSender::Bounded(s) => match s.try_send(item) {
+                Ok(()) => TrySendResult::Ok,
+                Err(e) if e.is_full() => TrySendResult::Full,
+                Err(e) if e.is_disconnected() => TrySendResult::Disconnected,
+                _ => unreachable!(),
+            },
+            InboundSender::Unbounded(s) => match s.unbounded_send(item) {
+                Ok(()) => TrySendResult::Ok,
+                Err(_e) => TrySendResult::Disconnected,
+            },
+        }
+    }
+}
+
+/// Enum to wrap [`mpsc::Receiver`] and [`mpsc::UnboundedReceiver`]
+pub(crate) enum InboundReceiver {
+    Bounded(mpsc::Receiver<(PeerId, Stream)>),
+    Unbounded(mpsc::UnboundedReceiver<(PeerId, Stream)>),
+}
+
+impl futures::Stream for InboundReceiver {
+    type Item = (PeerId, Stream);
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match &mut *self {
+            InboundReceiver::Bounded(s) => Pin::new(s).poll_next_unpin(cx),
+            InboundReceiver::Unbounded(s) => Pin::new(s).poll_next_unpin(cx),
+        }
+    }
+}
+
+pub(crate) enum TrySendResult {
+    Ok,
+    Full,
+    Disconnected,
+}
+
 /// A handle to inbound streams for a particular protocol.
 #[must_use = "Streams do nothing unless polled."]
 pub struct IncomingStreams {
-    receiver: mpsc::Receiver<(PeerId, Stream)>,
+    receiver: InboundReceiver,
 }
 
 impl IncomingStreams {
-    pub(crate) fn new(receiver: mpsc::Receiver<(PeerId, Stream)>) -> Self {
-        Self { receiver }
+    pub(crate) fn new_bounded(receiver: mpsc::Receiver<(PeerId, Stream)>) -> Self {
+        Self {
+            receiver: InboundReceiver::Bounded(receiver),
+        }
+    }
+
+    pub(crate) fn new_unbounded(receiver: mpsc::UnboundedReceiver<(PeerId, Stream)>) -> Self {
+        Self {
+            receiver: InboundReceiver::Unbounded(receiver),
+        }
     }
 }
 
