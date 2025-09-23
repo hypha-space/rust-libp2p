@@ -16,18 +16,12 @@ impl<T: AuthenticatedMultiplexedTransport, Provider, R>
         self,
         registry: &mut libp2p_metrics::Registry,
     ) -> SwarmBuilder<Provider, BehaviourPhase<impl AuthenticatedMultiplexedTransport, R>> {
-        SwarmBuilder {
-            phase: BehaviourPhase {
-                relay_behaviour: self.phase.relay_behaviour,
-                transport: libp2p_metrics::BandwidthTransport::new(self.phase.transport, registry)
-                    .map(|(peer_id, conn), _| (peer_id, StreamMuxerBox::new(conn))),
-            },
-            cert_chain: self.cert_chain,
-            private_key: self.private_key,
-            ca_certs: self.ca_certs,
-            crls: self.crls,
-            phantom: PhantomData,
-        }
+        self
+            .map_transport(|t| {
+                libp2p_metrics::BandwidthTransport::new(t, registry)
+                    .map(|(peer_id, conn), _| (peer_id, StreamMuxerBox::new(conn)))
+            })
+            .without_bandwidth_metrics()
     }
 }
 

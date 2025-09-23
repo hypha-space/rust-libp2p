@@ -5,6 +5,7 @@ mod behaviour;
 mod build;
 mod dns;
 mod identity;
+mod map_transport;
 mod other_transport;
 mod provider;
 mod quic;
