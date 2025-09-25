@@ -27,8 +27,11 @@ async fn dropping_incoming_streams_deregisters() {
     let mut swarm2 = Swarm::new_ephemeral_tokio(|_| stream::Behaviour::new());
 
     let mut control = swarm1.behaviour().new_control();
-    let mut incoming = swarm2.behaviour().new_control().accept(PROTOCOL).unwrap();
-
+    let mut incoming = swarm2
+        .behaviour()
+        .new_control()
+        .accept(PROTOCOL)
+        .unwrap();
     swarm2.listen().with_memory_addr_external().await;
     swarm1.connect(&mut swarm2).await;
 

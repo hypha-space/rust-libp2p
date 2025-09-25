@@ -9,15 +9,19 @@ use libp2p_identity::PeerId;
 use libp2p_swarm::{ConnectionId, Stream, StreamProtocol};
 use rand::seq::IteratorRandom as _;
 
-use crate::{handler::NewStream, AlreadyRegistered, IncomingStreams};
+use crate::{
+    control::{InboundSender, TrySendResult},
+    handler::NewStream,
+    AlreadyRegistered, IncomingStreams,
+};
 
 pub(crate) struct Shared {
     /// Tracks the supported inbound protocols created via
     /// [`Control::accept`](crate::Control::accept).
     ///
-    /// For each [`StreamProtocol`], we hold the [`mpsc::Sender`] corresponding to the
-    /// [`mpsc::Receiver`] in [`IncomingStreams`].
-    supported_inbound_protocols: HashMap<StreamProtocol, mpsc::Sender<(PeerId, Stream)>>,
+    /// For each [`StreamProtocol`], we hold the [`InboundSender`] corresponding to the
+    /// [`InboundReceiver`] in [`IncomingStreams`].
+    supported_inbound_protocols: HashMap<StreamProtocol, InboundSender>,
 
     connections: HashMap<ConnectionId, PeerId>,
     senders: HashMap<ConnectionId, mpsc::Sender<NewStream>>,
@@ -53,6 +57,15 @@ impl Shared {
         &mut self,
         protocol: StreamProtocol,
     ) -> Result<IncomingStreams, AlreadyRegistered> {
+        self.accept_with_limit(protocol, Some(0))
+    }
+
+    /// Allows communication channels with max(0, limit-1) number of buffered messages or an unbound channel
+    pub(crate) fn accept_with_limit(
+        &mut self,
+        protocol: StreamProtocol,
+        limit: Option<usize>,
+    ) -> Result<IncomingStreams, AlreadyRegistered> {
         self.supported_inbound_protocols
             .retain(|_, sender| !sender.is_closed());
 
@@ -60,11 +73,21 @@ impl Shared {
             return Err(AlreadyRegistered);
         }
 
-        let (sender, receiver) = mpsc::channel(0);
-        self.supported_inbound_protocols
-            .insert(protocol.clone(), sender);
-
-        Ok(IncomingStreams::new(receiver))
+        match limit {
+            None => {
+                let (sender, receiver) = mpsc::unbounded();
+                self.supported_inbound_protocols
+                    .insert(protocol.clone(), InboundSender::Unbounded(sender));
+                Ok(IncomingStreams::new_unbounded(receiver))
+            }
+            Some(limit) => {
+                let buffer = limit.saturating_sub(1);
+                let (sender, receiver) = mpsc::channel(buffer);
+                self.supported_inbound_protocols
+                    .insert(protocol.clone(), InboundSender::Bounded(sender));
+                Ok(IncomingStreams::new_bounded(receiver))
+            }
+        }
     }
 
     /// Lists the protocols for which we have an active [`IncomingStreams`] instance.
@@ -83,15 +106,14 @@ impl Shared {
     ) {
         match self.supported_inbound_protocols.entry(protocol.clone()) {
             Entry::Occupied(mut entry) => match entry.get_mut().try_send((remote, stream)) {
-                Ok(()) => {}
-                Err(e) if e.is_full() => {
+                TrySendResult::Ok => {}
+                TrySendResult::Full => {
                     tracing::debug!(%protocol, "Channel is full, dropping inbound stream");
                 }
-                Err(e) if e.is_disconnected() => {
+                TrySendResult::Disconnected => {
                     tracing::debug!(%protocol, "Channel is gone, dropping inbound stream");
                     entry.remove();
                 }
-                _ => unreachable!(),
             },
             Entry::Vacant(_) => {
                 tracing::debug!(%protocol, "channel is gone, dropping inbound stream");
