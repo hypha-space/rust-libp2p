@@ -45,12 +45,22 @@ pub struct Config {
     /// concurrently by the remote peer.
     pub max_concurrent_stream_limit: u32,
 
-    /// Max unacknowledged data in bytes that may be sent on a single stream.
+    /// Maximum amount of stream data in bytes that may be received on a single stream
+    /// before the peer is blocked.
     pub max_stream_data: u32,
 
-    /// Max unacknowledged data in bytes that may be sent in total on all streams
-    /// of a connection.
+    /// Maximum amount of stream data in bytes that may be received in total across all
+    /// streams of a connection before the peer is blocked.
     pub max_connection_data: u32,
+
+    /// Optional override for the maximum amount of stream data in bytes for sending on
+    /// a connection.
+    ///
+    /// If not set, defaults to [`Config::max_connection_data`], i.e. keeping send and receive
+    /// windows symmetric.
+    ///
+    /// See [`quinn::TransportConfig::send_window`] for more info.
+    pub max_connection_send_data: Option<u32>,
 
     /// Support QUIC version draft-29 for dialing and listening.
     ///
@@ -116,6 +126,7 @@ impl Config {
             max_concurrent_stream_limit: 256,
             keep_alive_interval: Duration::from_secs(5),
             max_connection_data: 15_000_000,
+            max_connection_send_data: None,
 
             // Ensure that one stream is not consuming the whole connection.
             max_stream_data: 10_000_000,
@@ -138,6 +149,14 @@ impl Config {
         self.mtu_discovery_config = None;
         self
     }
+
+    /// Override the connection-level send window.
+    ///
+    /// If not set, defaults to [`Config::max_connection_data`].
+    pub fn max_connection_send_data(mut self, value: u32) -> Self {
+        self.max_connection_send_data = Some(value);
+        self
+    }
 }
 
 /// Represents the inner configuration for [`quinn`].
@@ -158,6 +177,7 @@ impl From<Config> for QuinnConfig {
             max_concurrent_stream_limit,
             keep_alive_interval,
             max_connection_data,
+            max_connection_send_data,
             max_stream_data,
             support_draft_29,
             handshake_timeout: _,
@@ -175,6 +195,11 @@ impl From<Config> for QuinnConfig {
         transport.allow_spin(false);
         transport.stream_receive_window(max_stream_data.into());
         transport.receive_window(max_connection_data.into());
+        transport.send_window(
+            max_connection_send_data
+                .unwrap_or(max_connection_data)
+                .into(),
+        );
         transport.mtu_discovery_config(mtu_discovery_config);
         let transport = Arc::new(transport);
 
