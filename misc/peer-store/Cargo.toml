@@ -11,7 +11,7 @@ rust-version.workspace = true
 [dependencies]
 libp2p-core = { workspace = true }
 libp2p-swarm = { workspace = true }
-lru = "0.12.3"
+lru = "0.16.3"
 libp2p-identity = { workspace = true, optional = true }
 
 [dev-dependencies]
